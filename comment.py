@@ -20,7 +20,6 @@ import json
 import codecs
 import time
 from concurrent.futures import ThreadPoolExecutor
-
 # 头部信息
 headers = {
     'Host': "music.163.com",
@@ -41,7 +40,7 @@ headers = {
     utmb=94650624.4.10.1525771509; __utmc=94650624; __utmz=94650624.15257\
     67521.1.1.utmcsr=(direct)|utmccn=(direct)|utmcmd=(none)",
     'Connection': "keep-alive",
-    'Referer': 'http: //music.163.com/'
+
 }
 # 设置代理服务器
 proxies = {
@@ -62,6 +61,30 @@ da92557c93870114af6c9d05c4f7f0c3685b7a46bee255932575cce10b424d813cfe4875d\
 forth_param = "0CoJUm6Qyw8W8jud"
 
 
+# 获取playlist的参数
+def get_params_songs(listId):
+    first_param = '{id: "%s", ids: "[%s]",\
+ limit: 10000, offset: 0, csrf_token: ""}' % (listId, listId)
+    iv = "0102030405060708"
+    first_key = forth_param
+    second_key = 16 * 'F'
+    h_encText = AES_encrypt(first_param, first_key, iv)
+    h_encText = AES_encrypt(h_encText, second_key, iv)
+    return h_encText
+
+
+# 获取user的playlist参数
+def get_params_playlist(userId):
+    first_param = '{limit:"36", offset:"0",\
+total:"true", uid:"%s", wordwrap: "7", csrf_token:""}' % (userId)
+    iv = "0102030405060708"
+    first_key = forth_param
+    second_key = 16 * 'F'
+    h_encText = AES_encrypt(first_param, first_key, iv)
+    h_encText = AES_encrypt(h_encText, second_key, iv)
+    return h_encText
+
+
 # 获取Post参数params
 def get_params(page):  # page为传入页数
     iv = "0102030405060708"
@@ -74,7 +97,7 @@ def get_params(page):  # page为传入页数
     else:
         offset = str((page-1)*20)
         first_param = '{rid:"", offset:"%s", total:"%s", \
-limit:"20", csrf_token:""}' % (offset, 'false')
+    limit:"20", csrf_token:""}' % (offset, 'false')
         h_encText = AES_encrypt(first_param, first_key, iv)
     h_encText = AES_encrypt(h_encText, second_key, iv)
     return h_encText
@@ -108,30 +131,27 @@ def get_json(url, params):
     return response.content
 
 
+def get_html(url):
+    response = requests.get(url)
+    return response.content
+
+
 # 获得评论json数据
 def get_comment(url, params):
-    data = {
-         "params": params,
-         "encSecKey": get_encSecKey()
-    }
-    response = requests.post(url, headers=headers, data=data, proxies=proxies)
-    json_dict = json.loads(response.content)
+    json_text = get_json(url, params)
+    json_dict = json.loads(json_text)
     comments = []
     for item in json_dict['comments']:
-        comment = item['content']  # 评论内容
-        likedCount = item['likedCount']  # 点赞总数
-        comment_time = item['time']  # 评论时间(时间戳)
-        userID = item['user']['userId']  # 评论者id
-        nickname = item['user']['nickname']  # 昵称
-        avatarUrl = item['user']['avatarUrl']  # 头像地址
-        comment_info = unicode(userID) + u" " + nickname + u" " + avatarUrl + \
-            u" " + unicode(comment_time) + u" " + unicode(likedCount) +  \
-            u" " + comment + u"\n"
-        comments.append(comment_info)
+        comment = {'comment': item['content'], 'comment_time': item['time'],
+                   'userID': item['user']['userId'],
+                   'nickname': item['user']['nickname']}
+        comments.append(comment)
     return comments
 
 
-def get_all_comments(url):  # 多线程爬取
+def get_all_comments(songId):  # 多线程爬取
+    url = "http://music.163.com/weapi/v1/\
+resource/comments/R_SO_4_" + unicode(songId) + "/?csrf_token="
     all_comments_list = []  # 存放所有评论
     all_comments_list.append(
         u"用户ID 用户昵称 用户头像地址 评论时间 点赞总数 评论内容\n")  # 头部信息
@@ -158,6 +178,41 @@ def get_all_comments(url):  # 多线程爬取
     return all_comments_list
 
 
+def get_comments_from_id(songId, userId):
+    all_comments_list = get_all_comments(songId)
+    comments = []
+    for comment in all_comments_list:
+        if (userId == comment['userID']):
+            comments.append(comment)
+    return comments
+
+
+def get_all_playlist(userId):
+    url = 'http://music.163.com/weapi/user/playlist?csrf_token='
+    params = get_params_playlist(userId)
+    json_text = get_json(url, params)
+    json_dict = json.loads(json_text)
+    playlist = []
+    pl_dict = json_dict['playlist']
+    for i in range(0, len(pl_dict)):
+        listname = {'id': pl_dict[i]['id'], 'name': pl_dict[i]['name']}
+        playlist.append(listname)
+    return playlist
+
+
+def get_all_songs(playlistId):
+    url = "http://music.163.com/weapi/playlist/detail"
+    params = get_params_songs(playlistId)
+    json_text = get_json(url, params)
+    json_dict = json.loads(json_text)
+    tracks = json_dict['result']['tracks']
+    songlist = []
+    for track in tracks:
+        song = {'id': track['id'], 'name': track['name']}
+        songlist.append(song)
+    return songlist
+
+
 # 将评论写入文本文件
 def save_to_file(comment_list, filename):
         with codecs.open(filename, 'a', encoding='utf-8') as f:
@@ -167,10 +222,18 @@ def save_to_file(comment_list, filename):
 
 if __name__ == "__main__":
     start_time = time.time()  # 开始时间
-    url = "http://music.163.com/weapi/v1/\
-resource/comments/R_SO_4_448184048/?csrf_token="
-    filename = u"炜炜一笑.txt"
-    all_comments_list = get_all_comments(url)
-    save_to_file(all_comments_list, filename)
+    filename = u"list2.txt"
+    userId = '98830806'
+    playlist = get_all_playlist(userId)
+    all_songs = []
+    for li in playlist:
+        songs_list = get_all_songs(li['id'])
+        all_songs.extend(songs_list)
+    with open('songs.json', 'w') as f:
+        json.dump(all_songs, f)
+
+    comments = get_comments_from_id('448184048', 46834350)
+    with open('comments.json', 'w') as f:
+        json.dump(comments, f)
     end_time = time.time()  # 结束时间
     print("程序耗时%f秒." % (end_time - start_time))
