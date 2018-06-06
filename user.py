@@ -36,12 +36,16 @@ if __name__ == "__main__":
         json.dump(all_songs, f)
     comments = []
     i = 1
+#    comment.get_comments_from_id(all_songs[48]['id'], userId)
     for song in all_songs:
-        print '搜索第 %d 首...' % i
-        i = i+1
+        com = []
+
         com = comment.get_comments_from_id(song['id'], userId)
+
+        print '搜索第 %d 首 获得 %d 条评论...' % (i, len(com))
+        i = i+1
+        with open('comments.json', 'a') as f:
+            json.dump(com, f)
         comments.extend(com)
-    with open('comments.json', 'w') as f:
-        json.dump(comments, f)
     end_time = time.time()  # 结束时间
     print("程序耗时%f秒." % (end_time - start_time))

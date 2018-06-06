@@ -19,28 +19,20 @@ import requests
 import json
 import codecs
 import time
+import logging
 from concurrent.futures import ThreadPoolExecutor
+from proxy import get_proxy
+from proxy import change_proxy
+from proxy import get_ua
+
 # 头部信息
 headers = {
     'Host': "music.163.com",
-    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64)' +
-    'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.89 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0(Macintosh;U;IntelMacOSX10_6_8;en-us)AppleWebKit/534.50(KHTML,likeGecko)Version/5.1Safari/534.50',
     'Accept-Language': "zh-CN,zh;q=0.9,en;q=0.8",
     'Accept-Encoding': "gzip, deflate",
     'Content-Type': "application/x-www-form-urlencoded",
-    'Cookie': "_ntes_nnid=b316fe2686a3a0877a7d853e79abc2ea,1525767520447;\
-    _ntes_nuid=b316fe2686a3a0877a7d853e79abc2ea; Province=020; City=0755;\
-    vjuids=-17e083ea.1633f115b3b.0.e770523537072;vjlast=1525771492.152577\
-    1492.30;NNSSPID=394e68813b96410b94d2ec19de9c8e16; NTES_hp_textlink1=o\
-    ld;JSESSIONID-WYYY=U5eU8w8koPlgFAlIeanAH4W%2BBb9R34DKyN0TR3F7%5C5BAJa\
-    K9mzHlrvempw234BsepKysPMS7%5CrzBzuJRADlQ7DU2vd5eS6GN6MzUEgKfOAmshXweU\
-    rcOVkbjkib7ReNe46ectWVaJp7e4sdOc6vKYIv7SmUKlSd%2B66vlOycI4OSV3Rz%5C%3\
-    A1525773308317; _iuqxldmzr_=32; WM_TID=dHu1ag4T7i3c9lwxTLdG5rTUj4668Q\
-    lS; __utma=94650624.1525982280.1525767521.1525767521.1525771509.2; __\
-    utmb=94650624.4.10.1525771509; __utmc=94650624; __utmz=94650624.15257\
-    67521.1.1.utmcsr=(direct)|utmccn=(direct)|utmcmd=(none)",
     'Connection': "keep-alive",
-
 }
 # 设置代理服务器
 proxies = {
@@ -127,19 +119,38 @@ def get_json(url, params):
          "params": params,
          "encSecKey": get_encSecKey()
     }
-    response = requests.post(url, headers=headers, data=data, proxies=proxies)
-    return response.content
+#    proxy = get_proxy()
+    headers['User-Agent'] = get_ua()
+    response = requests.post(url, headers=headers,
+                             data=data)   # , proxies={'http:': proxy})
+    content = json.loads(response.content)
+    while True:
+        if 'code' in content and 'msg' in content:
+            try:
+                if content['code'] == -460 and content['msg'] == 'Cheating':
+                    #                    proxy = change_proxy(proxy)
+                    headers['User-Agent'] = get_ua()
+                    response = requests.post(url, headers=headers,
+                                        data=data)
+                    content = json.loads(response.content)
+            except Exception, e:
+                print e
+                print type(content)
+                print type(response.content)
+
+        else:
+            break
+    return content
 
 
-def get_html(url):
-    response = requests.get(url)
-    return response.content
+# def get_html(url):
+#     response = requests.get(url)
+#     return response.content
 
 
 # 获得评论json数据
 def get_comment(url, params):
-    json_text = get_json(url, params)
-    json_dict = json.loads(json_text)
+    json_dict = get_json(url, params)
     comments = []
     for item in json_dict['comments']:
         comment = {'comment': item['content'], 'comment_time': item['time'],
@@ -156,14 +167,22 @@ resource/comments/R_SO_4_" + unicode(songId) + "/?csrf_token="
     all_comments_list.append(
         u"用户ID 用户昵称 用户头像地址 评论时间 点赞总数 评论内容\n")  # 头部信息
     params = get_params(1)
-    json_text = get_json(url, params)
-    json_dict = json.loads(json_text)
-    comments_num = int(json_dict['total'])
+    json_dict = get_json(url, params)
+    if 'total' in json_dict:
+        comments_num = int(json_dict['total'])
+    else:
+        comments_num = 0
+        print json_dict
+        logging.info("没有评论"+json_text)
     if(comments_num % 20 == 0):
         page = comments_num / 20
     else:
         page = int(comments_num / 20) + 1
     print("共有%d页评论!" % page)
+    if(comments_num == 0):
+        print json_dict
+        logging.info("没有评论"+json_text)
+
     all_params = []
     urls = []
     for i in range(page):  # 逐页抓取
@@ -203,8 +222,7 @@ def get_all_playlist(userId):
 def get_all_songs(playlistId):
     url = "http://music.163.com/weapi/playlist/detail"
     params = get_params_songs(playlistId)
-    json_text = get_json(url, params)
-    json_dict = json.loads(json_text)
+    json_dict = get_json(url, params)
     tracks = json_dict['result']['tracks']
     songlist = []
     for track in tracks:
